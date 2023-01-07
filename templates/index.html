@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>blueblocks | jordan.matelsky.com</title>
+    <script src="//cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.js"></script>
+    <script src="//cdn.jsdelivr.net/npm/notyf@3/notyf.min.js"></script>
+    <link rel="stylesheet" href="//cdn.jsdelivr.net/npm/notyf@3/notyf.min.css">
+    <script async src="//www.googletagmanager.com/gtag/js?id=G-4RCVMZSKW6"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag() {
+            dataLayer.push(arguments);
+        }
+        gtag("js", new Date());
+
+        gtag("config", "G-4RCVMZSKW6");
+    </script>
+</head>
+
+<body>
+
+    <div id="top-pane">
+        <div id="scorecard">
+            Score: &mdash;
+        </div>
+        <div id="submit-container">
+            <button type="button" id="submit">
+                Submit
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let notifier = new Notyf({
+            duration: 10000
+        });
+
+        let width = window.innerWidth;
+        let height = window.innerHeight;
+
+        const CONFIG = {
+            TILE_SIZE: 64,
+            // TILE_COLOR: 0xffeedd,
+            TILE_COLOR: 0xbbccff,
+            TILE_BORDER_COLOR: 0x110022,
+            TILE_BORDER_WIDTH: 5,
+            TEXT_COLOR: 0x000000,
+
+            BOARD_COLOR: 0xffffff,
+            BOARD_BORDER_COLOR: 0x132b45,
+        }
+
+        /**
+         * @type {Phaser.Game}
+         */
+        let game;
+
+        window.onload = function () {
+
+            let config = {
+                type: Phaser.AUTO,
+                width,
+                height,
+                backgroundColor: 0xbeefef,
+                scene: [GameScene],
+                scale: {
+                    // Fit to window
+                    mode: Phaser.Scale.FIT,
+                    // Center vertically and horizontally
+                    autoCenter: Phaser.Scale.CENTER_BOTH
+                },
+            };
+
+            fetch("/api/game").then((response) => {
+                return response.json();
+            }).then((data) => {
+                window.currentGameLetters = data.letters;
+                game = new Phaser.Game(config);
+                window.game = game;
+            });
+        };
+
+        class LetterTile {
+            constructor(letter, x, y) {
+                this.letter = letter;
+                this.x = x;
+                this.y = y;
+            }
+
+            getLetter() {
+                return this.letter;
+            }
+        }
+
+        class GameScene extends Phaser.Scene {
+            constructor() {
+                super('Game');
+                this.letters = window.currentGameLetters.split('');
+                this.rubberBand = null;
+            }
+
+            preload() {
+                var url;
+                url = 'https://raw.githubusercontent.com/rexrainbow/phaser3-rex-notes/master/dist/rexpinchplugin.min.js';
+                this.load.plugin('rexpinchplugin', url, true);
+            }
+
+            createTile(letter, x, y) {
+                let tile = this.add.rectangle(0, 0, CONFIG.TILE_SIZE, CONFIG.TILE_SIZE, CONFIG.TILE_COLOR);
+                tile.setStrokeStyle(4, 0x002000);
+
+                let letterText = this.add.text(0, 0, letter, {
+                    font: `${CONFIG.TILE_SIZE * 0.8}px Arial`,
+                    fill: 'black'
+                });
+                letterText.setOrigin(0.5, 0.5);
+
+                // Create a container for the tile and letter
+                let container = this.add.container(x, y, [tile, letterText]);
+                container.x = Math.round(container.x / CONFIG.TILE_SIZE) * CONFIG.TILE_SIZE;
+                container.y = Math.round(container.y / CONFIG.TILE_SIZE) * CONFIG.TILE_SIZE;
+                container.setSize(CONFIG.TILE_SIZE, CONFIG.TILE_SIZE);
+                container.setInteractive();
+                container.setDepth(2);
+                this.input.setDraggable(container);
+
+                container._letter = letter;
+                return container;
+            }
+
+            create() {
+
+                var dragScale = this.plugins.get('rexpinchplugin').add(this);
+                let camera = this.cameras.main;
+                dragScale
+                    .on('pinch', function (dragScale) {
+                        var scaleFactor = dragScale.scaleFactor;
+                        camera.zoom *= scaleFactor;
+                    }, this);
+
+                // Create the background rectangle:
+                let background = this.add.rectangle(-1500, -1500, 3000, 3000, CONFIG.BOARD_COLOR);
+                background.setOrigin(0, 0);
+                background.setInteractive();
+                this.input.setDraggable(background);
+
+                // Draw grid (non-interactive)
+                for (let i = -20; i < 20; i++) {
+                    for (let j = -20; j < 20; j++) {
+                        let gridTile = this.add.rectangle(i * CONFIG.TILE_SIZE, j * CONFIG.TILE_SIZE, CONFIG.TILE_SIZE, CONFIG.TILE_SIZE, CONFIG.BOARD_COLOR);
+                        gridTile.setStrokeStyle(1, CONFIG.BOARD_BORDER_COLOR);
+                    }
+                }
+
+                if (
+                    !localStorage.getItem('gridPositions') ||
+                    Array.from(JSON.parse(localStorage.getItem('gridPositions'))).map(i => i.letter).sort().join('') != this.letters.sort().join('')
+                ) {
+                    this.tiles = [];
+                    for (let i = 0; i < this.letters.length; i++) {
+                        // this.createTile(this.letters[i], 100 + (i * CONFIG.TILE_SIZE), 100);
+                        // Rows of N
+                        let n = 2;
+                        this.tiles.push(this.createTile(this.letters[i], 100 + (i % n) * CONFIG.TILE_SIZE, 100 + Math.floor(i / n) * CONFIG.TILE_SIZE));
+                    }
+                } else {
+                    let gridPositions = JSON.parse(localStorage.getItem('gridPositions'));
+                    this.tiles = [];
+                    for (let i = 0; i < this.letters.length; i++) {
+                        this.tiles.push(this.createTile(gridPositions[i].letter, gridPositions[i].x, gridPositions[i].y));
+                    }
+                }
+
+                this.input.on('gameobjectdown', this.onObjectClicked, this);
+                this.input.on('drag', function (pointer, gameObject, dragX, dragY) {
+                    // If dragging tile, move it
+                    if (gameObject instanceof Phaser.GameObjects.Container) {
+                        gameObject.setDepth(4);
+                        gameObject.x = dragX;
+                        gameObject.y = dragY;
+                    }
+                });
+                let self = this;
+                // On release, snap to grid
+                this.input.on('dragend', function (pointer, gameObject) {
+                    // If dragging tile, move it
+                    if (gameObject instanceof Phaser.GameObjects.Container) {
+                        // Set z-index to 0
+                        gameObject.setDepth(1);
+                        // Snap to grid
+                        let snap = self.snapToGrid(
+                            gameObject.x,
+                            gameObject.y,
+                        );
+                        // Check if there's already a tile there
+                        let tile = self.getTileAt(snap.x, snap.y);
+                        if (tile) {
+                            // If there is, abort the drag and return the tile to its original position
+                            gameObject.x = gameObject.input.dragStartX;
+                            gameObject.y = gameObject.input.dragStartY;
+                            self.updateRubberBand();
+                            return;
+                        }
+                        // Move the tile to the new position
+                        gameObject.x = snap.x;
+                        gameObject.y = snap.y;
+                        self.updateRubberBand();
+                    }
+                });
+
+                // Click and drag background to move the camera. Needs to be after the drag event
+                // and requires the camera to be set to scrollable:
+                // Camera fixes:
+                this.cameras.main.setBounds(-1500, -1500, 3000, 3000);
+                this.cameras.main.setScroll(0, 0);
+                this.cameras.main.setZoom(1);
+
+                // Set the click/drag to move the camera
+                this.input.on('drag', function (pointer, gameObject, dragX, dragY) {
+                    // If dragging background, move the camera
+                    if (gameObject instanceof Phaser.GameObjects.Rectangle) {
+                        this.cameras.main.scrollX += pointer.prevPosition.x - pointer.position.x;
+                        this.cameras.main.scrollY += pointer.prevPosition.y - pointer.position.y;
+                    }
+                }, this);
+
+                // Zoom in/out
+                this.input.on('wheel', function (pointer, gameObject, deltaX, deltaY, deltaZ) {
+                    // If dragging background, move the camera
+                    if (gameObject instanceof Phaser.GameObjects.Rectangle) {
+                        this.cameras.main.setZoom(this.cameras.main.zoom + deltaY * 0.01);
+                    }
+                }, this);
+
+                this.updateRubberBand();
+            }
+
+            snapToGrid(x, y) {
+                return {
+                    x: Math.round(x / CONFIG.TILE_SIZE) * CONFIG.TILE_SIZE,
+                    y: Math.round(y / CONFIG.TILE_SIZE) * CONFIG.TILE_SIZE
+                };
+            }
+
+            getTileAt(x, y) {
+                let tile = null;
+                this.children.each(function (child) {
+                    if (child instanceof Phaser.GameObjects.Container) {
+                        if (child.x === x && child.y === y) {
+                            tile = child;
+                        }
+                    }
+                });
+                return tile;
+            }
+
+            updateRubberBand() {
+                // Draw a cyan rubber band around the bounding box of all tiles
+                let gridPositions = this.getLetterPositions();
+                // Write to localStorage:
+                localStorage.setItem('gridPositions', JSON.stringify(gridPositions));
+
+                // Get min x and y
+                let minX = gridPositions.reduce((min, p) => p.x < min ? p.x : min, gridPositions[0].x);
+                let minY = gridPositions.reduce((min, p) => p.y < min ? p.y : min, gridPositions[0].y);
+                // Get max x and y
+                let maxX = gridPositions.reduce((max, p) => p.x > max ? p.x : max, gridPositions[0].x);
+                let maxY = gridPositions.reduce((max, p) => p.y > max ? p.y : max, gridPositions[0].y);
+
+                // Draw the rectangle
+                if (!this.rubberBand) {
+                    // Transparent rectangle with 2px cyan border
+                    this.rubberBand = this.add.rectangle(0, 0, 0, 0, 0x4499ff, 0.1);
+                    // Outline:
+                    this.rubberBand.setStrokeStyle(2, 0x00ffff);
+                }
+                this.rubberBand.x = minX - CONFIG.TILE_SIZE / 2;
+                this.rubberBand.y = minY - CONFIG.TILE_SIZE / 2;
+                this.rubberBand.width = maxX - minX + CONFIG.TILE_SIZE;
+                this.rubberBand.height = maxY - minY + CONFIG.TILE_SIZE;
+
+                // Draw the score (area of the rectangle)
+                document.getElementById('scorecard').innerHTML = "Score: " + (this.rubberBand.width / CONFIG.TILE_SIZE) * (this.rubberBand.height / CONFIG.TILE_SIZE);
+            }
+
+            update() {
+                // this.letterA.angle += 1;
+            }
+
+            getLetterPositions() {
+                // Makes the topleft-most tile (0, 0) and all other positions are relative to that
+                let letterPositions = [];
+                for (let i = 0; i < this.tiles.length; i++) {
+                    letterPositions.push(new LetterTile(
+                        this.tiles[i]._letter,
+                        this.tiles[i].x,
+                        this.tiles[i].y,
+                    ));
+                }
+                return letterPositions;
+            }
+
+            getGridLetterPositions() {
+                // Makes the topleft-most tile (0, 0) and all other positions are relative to that
+                let gridPositions = this.getLetterPositions();
+                // Get min x and y
+                let minX = gridPositions.reduce((min, p) => p.x < min ? p.x : min, gridPositions[0].x);
+                let minY = gridPositions.reduce((min, p) => p.y < min ? p.y : min, gridPositions[0].y);
+                // Subtract min x and y from all positions
+                for (let i = 0; i < gridPositions.length; i++) {
+                    gridPositions[i].x -= minX;
+                    gridPositions[i].y -= minY;
+                }
+                // Divide by tile size to get grid positions
+                for (let i = 0; i < gridPositions.length; i++) {
+                    gridPositions[i].x = Math.round(gridPositions[i].x / CONFIG.TILE_SIZE);
+                    gridPositions[i].y = Math.round(gridPositions[i].y / CONFIG.TILE_SIZE);
+                }
+                return gridPositions;
+            }
+
+            onObjectClicked(pointer, gameObject) {
+                // gameObject.setScale(gameObject.scaleX + 0.1);
+            }
+        }
+
+        // Submit:
+        document.getElementById('submit').addEventListener('click', function () {
+            let gridPositions = window.game.scene.scenes[0].getGridLetterPositions();
+
+            fetch('/api/submit', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ positions: gridPositions })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        notifier.error(
+                            `Error: ${data.error}`,
+                        );
+                    } else {
+                        // notifier.success(
+                        //     `Your score is ${data.bounding_box_area}!`,
+                        //     'Congratulations!'
+                        // );
+                        let successPageHtml = `
+                            <div id='success-page' class='transparent'>
+                                <div id="success-content">
+                                    <h1>Your score is:</h1>
+                                    <div style='color: forestgreen;font-size:4em;font-weight:bold'>${data.bounding_box_area}</div>
+                                    <p>
+                                        The current best score is <b>${data.lowest_score}</b>.
+                                    </p>
+                                    <h2>Think you can go lower?</h2>
+                                    <button id='keep-playing'>Keep playing!</button>
+                                </div>
+                            </div>
+                        `;
+                        // Add to DOM
+                        let successPage = document.createElement('div');
+                        successPage.innerHTML = successPageHtml;
+                        document.body.appendChild(successPage);
+                        // Add event listener
+                        document.getElementById('keep-playing').addEventListener('click', function () {
+                            document.body.removeChild(successPage);
+                        });
+                        // Fade in
+                        setTimeout(function () {
+                            document.getElementById('success-page').classList.remove('transparent');
+                        }, 100);
+
+
+                    }
+                })
+                .catch((error) => {
+                    console.error('Error:', error);
+                    notifier.error(
+                        `Error: ${error}`,
+                    );
+                });
+        });
+
+        const firstTimerHtml = `
+            <div id="first-timer">
+                <div id='first-timer-content'>
+                    <h1>Welcome to blueblocks!</h1>
+                    <p>
+                        If you've ever played a letter-grid game before, you know the satisfaction of placing a bunch of letters into a small space.
+                    </p>
+                    <br />
+                    <p>
+                        To win, you need to cram all of the letters into the smallest box possible, while all left-to-right and top-to-bottom paths are still valid words. You can submit as many times as you like.
+                    </p>
+                    <br />
+                    <p>
+                        Smallest score wins!
+                    </p>
+                    <p>
+                        <button type="button" id="first-timer-close">Got it!</button>
+                    </p>
+                </div>
+                <style>
+                    #first-timer {
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 100%;
+                        background-color: rgba(210,210,255, 0.9);
+                        display: flex;
+                        flex-direction: column;
+                        justify-content: center;
+                        align-items: center;
+                        z-index: 100;
+                    }
+                    #first-timer h1 {
+                        font-size: 2em;
+                        margin: 0;
+                        padding: 0;
+                    }
+                    #first-timer button {
+                        font-size: 1.5em;
+                        padding: 0.5em;
+                        margin: 0.5em;
+                    }
+                    #first-timer-content {
+                        margin: 3em;
+                        text-align: center;
+                    }
+                </style>
+            </div>
+            `;
+        // Check for "oldTimer" in localStorage
+        if (!localStorage.getItem("oldTimer")) {
+            // If not found, show first-timer message
+            document.body.innerHTML += firstTimerHtml;
+            document.getElementById("first-timer-close").onclick = function () {
+                document.getElementById("first-timer").remove();
+                localStorage.setItem("oldTimer", true);
+                // reload:
+                window.location.reload();
+            };
+        }
+
+    </script>
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        #top-pane {
+            position: fixed;
+            width: 100%;
+            background: white;
+            padding: 1em;
+            box-sizing: border-box;
+            font-family: sans-serif;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+        }
+
+        #scorecard {
+            font-size: 2em;
+            font-weight: bold;
+            text-align: left;
+            color: cornflowerblue;
+        }
+
+        #submit-container {
+            text-align: right;
+            /* Unstyled rect, materialy */
+        }
+
+        button {
+            background: #fff;
+            border: 1px solid #ccc;
+            text-transform: uppercase;
+            border-radius: 2px;
+            box-shadow: 0 1px 1px rgba(0, 0, 0, 0.075) inset;
+            font-weight: bold;
+            color: cornflowerblue;
+            display: inline-block;
+            font-size: 1.8em;
+            font-weight: bold;
+            line-height: 1.42857;
+            margin-bottom: 0;
+            padding: 6px 12px;
+            text-align: center;
+            vertical-align: middle;
+            white-space: nowrap;
+            cursor: pointer;
+            letter-spacing: 0.1em;
+        }
+
+        button:hover {
+            background: #f5f5f5;
+            border-color: #adadad;
+            color: #333;
+            box-shadow: 0 1px 1px rgba(0, 0, 0, 0.1) inset;
+        }
+
+        #success-page {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            position: fixed;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.5);
+            transition: opacity 0.5s;
+        }
+
+        #success-content {
+            background: white;
+            box-shadow: 0 0 10px #777;
+            padding: 4em;
+            width: 40vw;
+            min-width: 16em;
+            margin: auto;
+        }
+
+        #success-page.transparent {
+            opacity: 0;
+        }
+    </style>
+</body>
+
+</html>
