@@ -36,7 +36,7 @@
 
     <script>
         let notifier = new Notyf({
-            duration: 10000
+            duration: 5000
         });
 
         let width = window.innerWidth;
@@ -45,7 +45,7 @@
         const CONFIG = {
             TILE_SIZE: 64,
             // TILE_COLOR: 0xffeedd,
-            TILE_COLOR: 0xbbccff,
+            TILE_COLOR: 0xccddff,
             TILE_BORDER_COLOR: 0x110022,
             TILE_BORDER_WIDTH: 5,
             TEXT_COLOR: 0x000000,
@@ -53,6 +53,8 @@
             BOARD_COLOR: 0xffffff,
             BOARD_BORDER_COLOR: 0x132b45,
         }
+
+        const BASE_URL = ""
 
         /**
          * @type {Phaser.Game}
@@ -75,7 +77,7 @@
                 },
             };
 
-            fetch("/api/game").then((response) => {
+            fetch(`${BASE_URL}/api/game`).then((response) => {
                 return response.json();
             }).then((data) => {
                 window.currentGameLetters = data.letters;
@@ -105,7 +107,7 @@
 
             preload() {
                 var url;
-                url = 'https://raw.githubusercontent.com/rexrainbow/phaser3-rex-notes/master/dist/rexpinchplugin.min.js';
+                url = '//raw.githubusercontent.com/rexrainbow/phaser3-rex-notes/master/dist/rexpinchplugin.min.js';
                 this.load.plugin('rexpinchplugin', url, true);
             }
 
@@ -133,7 +135,6 @@
             }
 
             create() {
-
                 var dragScale = this.plugins.get('rexpinchplugin').add(this);
                 let camera = this.cameras.main;
                 dragScale
@@ -274,17 +275,53 @@
                 // Draw the rectangle
                 if (!this.rubberBand) {
                     // Transparent rectangle with 2px cyan border
-                    this.rubberBand = this.add.rectangle(0, 0, 0, 0, 0x4499ff, 0.1);
+                    this.rubberBand = this.add.rectangle(0, 0, 0, 0, 0x4499ff, 0.2);
+                    // Set the weight of the outline:
                     // Outline:
-                    this.rubberBand.setStrokeStyle(2, 0x00ffff);
+                    this.rubberBand.setStrokeStyle(2, 'blue');
                 }
                 this.rubberBand.x = minX - CONFIG.TILE_SIZE / 2;
                 this.rubberBand.y = minY - CONFIG.TILE_SIZE / 2;
                 this.rubberBand.width = maxX - minX + CONFIG.TILE_SIZE;
                 this.rubberBand.height = maxY - minY + CONFIG.TILE_SIZE;
 
-                // Draw the score (area of the rectangle)
-                document.getElementById('scorecard').innerHTML = "Score: " + (this.rubberBand.width / CONFIG.TILE_SIZE) * (this.rubberBand.height / CONFIG.TILE_SIZE);
+                // Check the score and validity:
+                // Loading icon:
+                document.getElementById('scorecard').innerHTML = `<span style="color: black; font-size:50%">Loading...</span>`;
+                fetch(`${BASE_URL}/api/submit`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ positions: window.game.scene.scenes[0].getGridLetterPositions() })
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.error) {
+                            let invalidWords = [];
+                            // Change scorecard to red X
+                            document.getElementById('scorecard').innerHTML = `<span style="color: red; font-size:50%">${data.error}</span>`;
+                            if (data.word_check) {
+                                // Loop over (word, valid) pairs and update the scorecard:
+                                let scorecard = document.getElementById('scorecard');
+                                scorecard.innerHTML = "";
+                                for (let i = 0; i < data.word_check.length; i++) {
+                                    let word = data.word_check[i][0];
+                                    let valid = data.word_check[i][1];
+                                    if (!valid) {
+                                        invalidWords.push(word);
+                                    }
+                                }
+                            }
+                            if (invalidWords.length > 0) {
+                                document.getElementById('scorecard').innerHTML += `<br><span style="color: red; font-size:50%">Invalid words: ${invalidWords.join(', ')}</span>`;
+                            }
+                        } else {
+                            // Change scorecard to score
+                            // Draw the score (area of the rectangle)
+                            document.getElementById('scorecard').innerHTML = "Score: " + (this.rubberBand.width / CONFIG.TILE_SIZE) * (this.rubberBand.height / CONFIG.TILE_SIZE);
+                        }
+                    });
             }
 
             update() {
@@ -332,7 +369,7 @@
         document.getElementById('submit').addEventListener('click', function () {
             let gridPositions = window.game.scene.scenes[0].getGridLetterPositions();
 
-            fetch('/api/submit', {
+            fetch(`${BASE_URL}/api/submit`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'

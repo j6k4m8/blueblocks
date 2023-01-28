@@ -379,9 +379,16 @@ class WordGrid:
 
 GAMES = {
     "2023-01-06": {"letters": "MOLTEDAAVOPBOT", "best_score": 20},
-    "2023-01-07": {"letters": "MOLTEDAAVOPBOT", "best_score": 20},
     "2023-01-08": {"letters": "BARNAREALIARLADY", "best_score": 16},
     "2023-01-09": {"letters": "SLAMTILEEATSPROS", "best_score": 16},
+    "2023-01-27": {"letters": "HEARTEMBERABUSERESINTREND", "best_score": 25},
+    "2023-01-28": {"letters": "CARDAREAREARDART", "best_score": 16},
+    "2023-01-29": {"letters": "TOOURNBEE", "best_score": 9},
+    "2023-01-30": {"letters": "LACKIRONMEREBAKE", "best_score": 16},
+    "2023-01-31": {"letters": "SCENTCANOEARSONROUSEFLEET", "best_score": 25},
+    "2023-02-01": {"letters": "LIMBAREACORKKNEE", "best_score": 16},
+    "2023-02-02": {"letters": "TANSAREALIONLAND", "best_score": 16},
+    "2023-02-03": {"letters": "GLASSESRELAPSEIMITATESMEAREDTANNERY", "best_score": 35},
 }
 
 
@@ -393,8 +400,12 @@ def get_todays_game() -> dict:
         str: The letters for today's game.
 
     """
+    days_since_01_01_2023 = (datetime.date.today() - datetime.date(2023, 1, 1)).days
     today = datetime.date.today().isoformat()
-    return GAMES[today]
+    if today in GAMES:
+        return GAMES[today]
+    else:
+        return list(GAMES.values())[days_since_01_01_2023 % len(GAMES)]
 
 
 class CustomFlask(Flask):
@@ -442,7 +453,7 @@ def submit():
             )
         components = wg.count_connected_components()
         if len(components[1]) > 1:
-            error = "All words must be connected."
+            error = "All words must connect."
 
         return jsonify(
             {
@@ -451,6 +462,7 @@ def submit():
                 "word_check": check,
                 "bounding_box_area": wg.get_bounding_box_area(),
                 "lowest_score": get_todays_game()["best_score"],
+                "connected_components": len(components[1]),
             }
         )
     except Exception as e:
